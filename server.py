@@ -15,7 +15,7 @@ def setup_server(host, port):
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # Permite reutilizar la dirección del socket [SOL_SOCKET = Nivel base de opciones] [SO_REUSADDR = permite reuse para evitar errores de OS "Address already in use"] [1 = True -- Activación del SO_REUSEADDR]
         server_socket.bind((HOST, PORT))                                     # Asocia el socket a la dirección y puerto especificados
         server_socket.listen()                                               # Comienza a escuchar conexiones entrantes
-        print(f"Servidor escuchando en {HOST}:{PORT}")
+        print(f"Servidor escuchando en {host}:{port}")
         return server_socket                                                 # Devolución del socket ya configurado
     except OSError as e:
         print(f"Error al configurar servidor: {e}")                          # Caso de error de Sistema Operativo
@@ -85,7 +85,7 @@ def handle_client_message(socket, clientes):
             return
         try:
             texto = mensaje.decode("utf-8")   
-            broadcast(socket, texto, clientes)                                # Se difunde el mensaje recibido a los demás clientes
+            broadcast(socket, texto, clientes)                               # Se difunde el mensaje recibido a los demás clientes
         except UnicodeDecodeError:
             print("Error al decodificar mensaje (no UTF-8).")                # Error al decodificar mensaje utf-8
     except ConnectionResetError:
@@ -99,3 +99,29 @@ def handle_client_message(socket, clientes):
     except KeyboardInterrupt:
         print("Servidor detenido manualmente.")
         exit(0)
+
+def main():
+    # Configuración del servidor y lo agrega a la lista de sockets activos
+    server = setup_server(HOST, PORT)                                        # Inicializa el socket servidor con localhost y puerto definido
+    listado_cliente.append(server)                                           # Incluye el servidor en la lista para que select lo monitoree
+
+    while True:                                                              # Bucle infinito para mantener el servidor activo
+        try:
+            readable, _, _ = select.select(listado_cliente, [], [])          # select.select monitorea múltiples sockets a la vez y "readable" indica la lista de sockets para la lectura
+
+            for sock in readable:                                            # Itera sobre los sockets listos
+                if sock is server:                                           
+                    handle_new_connection(server, listado_cliente)           # Si el socket es el servidor, significa que hay nueva conexión
+                else:                                                        
+                    handle_client_message(sock, listado_cliente)             # Si no es así, significa que un cliente envió datos
+
+        except KeyboardInterrupt:                                            # Permite detener el servidor con "Ctrl + C"
+            print("Servidor detenido manualmente.")
+            break                                                            # Mensaje de que se detiene manualmente y se sale del bucle principal
+
+    # Al salir del bucle, se cierran todos los sockets activos
+    for sock in listado_cliente:
+        try:
+            sock.close()                                                     # Cierra cada socket para liberar recursos
+        except OSError as e:
+            print(f"Error al cerrar socket: {e}")                     
