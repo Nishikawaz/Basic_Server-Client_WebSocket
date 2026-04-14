@@ -124,4 +124,4 @@ def main():
         try:
             sock.close()                                                     # Cierra cada socket para liberar recursos
         except OSError as e:
-            print(f"Error al cerrar socket: {e}")                     
+            print(f"Error al cerrar socket: {e}")                           
