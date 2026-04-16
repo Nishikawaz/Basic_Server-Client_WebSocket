@@ -1,73 +1,56 @@
-import socket
-import threading
+import socket    # Para conectarse al servidor
+import threading # Para hacer dos cosas a la vez: escribir y escuchar
+import sys       # Para la salida de la terminal (limpiar líneas)
 
-# Configuración del servidor al que se conectará el cliente
-HOST = "127.0.0.1"   # Dirección del servidor (localhost)
-PORT = 6869          # Puerto del servidor
+# Configuración
+HOST = "127.0.0.1"
+PORT = 6869
 
-# Función para recibir mensajes del servidor
+# Función que establece un hilo secundario "corriendo" siempre escuchando al servidor
 def recibir_mensajes(sock):
     while True:
         try:
-            mensaje = sock.recv(1024)                                           # Recibe datos del servidor
-            if not mensaje:                                                     # Si no hay datos, el servidor cerró la conexión
-                print("Conexión cerrada por el servidor")
+            mensaje = sock.recv(1024) # Se queda esperando recibir algo del servidor
+            if not mensaje: # Si el servidor se apaga, recibiremos un paquete vacío
+                print("\nConexión cerrada por el servidor.")
                 break
-            print("\n" + mensaje.decode("utf-8"))                               # Muestra el mensaje recibido
-        except ConnectionResetError:
-            print("Conexión reiniciada por el servidor")                       # A menos que se presenta un error de conexión
+            sys.stdout.write(f"\r{mensaje.decode('utf-8')}\nTú: ") # \r mueve el cursor al inicio de la línea
+            sys.stdout.flush() # Fuerza a la terminal a mostrar el texto directo
+        except: # Cualquier error de red rompe el bucle de recepción
             break
-        except OSError as e:                                                    # A menos que se presente un error por Sistema operativo
-            print(f"Error de red al recibir: {e}")
-            break
-        except KeyboardInterrupt:                                               # A menos que se presenta un error por interrupción manual
-            print("Cliente detenido manualmente")
-            break
+    print("Hilo de recepción terminado.")
 
-# Función principal del cliente
+# Hilo principal donde se maneja la conexión y el envío de mensajes
 def main():
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # Crea el socket del cliente (TCP)
     try:
-        # Crear socket del cliente
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((HOST, PORT))                                              # Conecta al servidor
+        sock.connect((HOST, PORT)) # Intenta conectar al servidor
         print(f"Conectado al servidor {HOST}:{PORT}")
-
-        # Hilo para escuchar mensajes del servidor en paralelo
-        hilo_receptor = threading.Thread(target=recibir_mensajes, args=(sock,))
-        hilo_receptor.daemon = True                                             # Se cierra automáticamente al terminar el programa
+        hilo_receptor = threading.Thread(target=recibir_mensajes, args=(sock,)) # Crea un hilo paralelo para ejecutar la función 'recibir_mensajes'
+        hilo_receptor.daemon = True # Daemon=True hace que el hilo muera automáticamente si el programa principal se cierra
         hilo_receptor.start()
 
-        # Bucle para enviar mensajes
+        # Bucle principal de interacción
         while True:
-            try:
-                mensaje = input("Tú: ")                                         # Captura mensaje del usuario
-                if mensaje.lower() == "salir":                                  # Comando para salir
-                    print("Cerrando conexión...")
-                    sock.close()
+            mensaje = input("Tú: ") # Se queda pausado esperando que el usuario escriba algo
+            if mensaje.lower() == "salir": # Si el usuario escribe 'salir', rompemos el bucle
+                break
+            if mensaje: # Solo enviamos si el mensaje tiene contenido
+                try:
+                    sock.sendall(mensaje.encode("utf-8")) # Codifica a UTF-8 y envía todo el contenido
+                except (BrokenPipeError, ConnectionResetError):
+                    print("Error: Se perdió la conexión con el servidor.")
                     break
-                sock.send(mensaje.encode("utf-8"))                              # Envía mensaje al servidor
-            except BrokenPipeError:                                             # A menos de que sea un error de BrokenPipe
-                print("Error: conexión rota con el servidor")
-                break
-            except ConnectionResetError:
-                print("Error: el servidor reinició la conexión")
-                break
-            except OSError as e:
-                print(f"Error de red al enviar: {e}")
-                break
-            except KeyboardInterrupt:
-                print("Cliente detenido manualmente")
-                sock.close()
-                break
-
-    except ConnectionRefusedError:                                              # Mientras no sea rechazado 
-        print("No se pudo conectar al servidor (rechazado)")
-    except OSError as e:                                    
-        print(f"Error al crear socket: {e}")
+    except ConnectionRefusedError:
+        # Error si el servidor no está encendido o el puerto está cerrado
+        print("No se pudo conectar: Servidor fuera de línea.")
     except KeyboardInterrupt:
-        print("Cliente detenido manualmente")
+        # Salida limpia con Ctrl+C
+        print("\nSaliendo...")
+    finally:
+        # Asegura que el socket se cierre al terminar el programa
+        sock.close()
+        print("Socket del cliente cerrado.")
 
-# Punto de entrada
 if __name__ == "__main__":
     main()
-
