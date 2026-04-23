@@ -41,3 +41,11 @@ def disconnect(socket_client):
         pass
     print(f"[SERVER] Cliente desconectado")
 
+# Función de envío de mensaje tipo broadcast - Envío masivo excepto al emisor
+def broadcast(message, socket_sender):
+    for client in CLIENTS:
+        if client != socket_sender:
+            try:
+                client.send(message.encode("utf-8"))
+            except:
+                disconnect(client)
