@@ -1,4 +1,5 @@
 import socket
+import select
 
 # Configuración global
 IP = "127.0.0.1"
@@ -15,7 +16,7 @@ def setup_server(ip, port):
         socket_server.bind((ip, port))
         socket_server.listen()
         socket_server.setblocking(False)
-        print(f"[SISTEMA] Servidor configurado y en modo escucha - {ip}:{port}")
+        print(f"[SISTEMA] Servidor configurado y en modo escucha \nIP: {ip} \nPORT: {port}")
         return socket_server
     except OSError as e:
         print(f"Error al configurar servidor: {e}")
@@ -27,7 +28,7 @@ def accept_client(socket_server):
         (socket_client, client_address) = socket_server.accept()
         socket_client.setblocking(False)
         SOCKETS.append(socket_client)
-        print(f"Conexión establecida con el cliente - Conexión desde: {client_address[0]}:{client_address[1]}")
+        print(f"[SERVER] Conexión establecida con el cliente - Conexión desde: {client_address[0]}:{client_address[1]}")
     except Exception as e:
         print(f"Error al aceptar conexión: {e}")
 
@@ -42,24 +43,48 @@ def disconnect(socket_client):
     print(f"[SERVER] Cliente desconectado")
 
 # Función de envío de mensaje tipo broadcast (a todos menos al emisor)
-def broadcast(message, socket_sender):
+def broadcast(message, socket_sender, socket_server):
     for client in SOCKETS:
-        if client != socket_sender:
+        if client != socket_sender and client != socket_server:
             try:
-                client.send(message.encode("utf-8"))
+                client.send(message)
             except:
                 disconnect(client)
 
-# Función de gestión de los socket_clients. Verifica el envío de mensajes o desconexión
+# Función de gestión de los socket_clients. Verifica el envío de mensajes o confirma la desconexión
 def client_management(socket_client):
     try: 
         message = socket_client.recv(BUFFER)
-    except OSError:
+        if not message:
+            disconnect(socket_client)
+            return
+
+        print(f"[LOG] Mensaje recibido: {message.decode('utf-8').strip()}")
+        broadcast(message, socket_client)
+        
+    except Exception:
         disconnect(socket_client)
-        return
-    
-    if not message:
-        disconnect(socket_client)
-        return
-    
-    broadcast(message, socket_client)
+
+# Función para "prender" el socket_server
+def server_on(socket_server):
+    SOCKETS.append(socket_server)
+    print("[SISTEMA] El protocolo de comunicación se ha instanciado")
+
+    try:
+        while True:
+            ready, _, _ = select.select(SOCKETS, [], [])
+            for socket in ready:
+                if socket == socket_server:
+                    accept_client(socket_server)
+                else:
+                    client_management(socket)
+
+    except KeyboardInterrupt:
+        print("[SISTEMA] Apagando el servidor de forma manual")
+
+    finally:
+        for socket in SOCKETS:
+            socket.close()
+# Iniciando el server
+socket_server = setup_server(IP, PORT)
+server_on(socket_server)
