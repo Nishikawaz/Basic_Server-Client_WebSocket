@@ -1,95 +1,90 @@
-import socket  # Librería para comunicaciones de red 
-import select  # Librería para monitorear múltiples sockets simultáneamente
+import socket
+import select
 
-# Configuración
-HOST = "127.0.0.1" # Localhost
-PORT = 6869        # Puerto de escucha (debe ser el mismo en el cliente)
-BUFFER = 1024      # Tamaño máximo de datos (en bytes) a recibir por vez
+# Configuración global
+IP = "127.0.0.1"
+PORT = 6869
+BUFFER = 1024
 
-# Lista global que almacenará todos los sockets activos (servidor + clientes)
-listado_cliente = [] 
+SOCKETS = [] 
 
-# Función para configuración del servidor
-def setup_server(host, port):
+# Función para configurar inicialmente el socket_servidor
+def setup_server(ip, port):
     try:
-        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # Crea el socket: AF_INET (IPv4), SOCK_STREAM (TCP)
-        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # Permite reiniciar el servidor rápido si se cae, evitando el error "Address already in use"
-        server_socket.bind((host, port)) # Vincula el socket a la IP y Puerto definidos
-        server_socket.listen() # Pone al servidor en modo escucha para detectar intentos de conexión
-        server_socket.setblocking(False) # Hace que el socket no se detenga a esperar (select maneja las conexiones) [NO BLOQUEANTE]
-        print(f"Servidor escuchando en {host}:{port}")
-        return server_socket
+        socket_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socket_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        socket_server.bind((ip, port))
+        socket_server.listen()
+        socket_server.setblocking(False)
+        print(f"[SISTEMA] Servidor configurado y en modo escucha \nIP: {ip} \nPORT: {port}")
+        return socket_server
     except OSError as e:
         print(f"Error al configurar servidor: {e}")
-        exit(1) 
+        exit(1)
 
-# Función de envío de mensajes (menos al remitente)
-def broadcast(emisor, mensaje, clientes, server_ref):
-    for cliente in clientes[:]:  # Iteramos sobre una copia [:] para que si alguien se desconecta, no rompa el bucle
-        if cliente != emisor and cliente != server_ref: # No enviamos el mensaje al emisor original ni al socket del servidor
-            try:
-                cliente.sendall(mensaje.encode("utf-8")) # sendall garantiza que se envíe el paquete completo sin cortes
-            except:
-                disconnect(cliente, clientes) # Si falla el envío, se asume que el cliente cayó y lo sacamos
-
-# Función que cierra conexión de socket y lo elimina de la lista
-def disconnect(sock, clientes):
-    if sock in clientes:
-        try:
-            clientes.remove(sock) # Lo quita de las búsquedas del "select"
-            sock.close()          # Libera el recurso en el Sistema Operativo
-            print("Cliente desconectado y socket cerrado.")
-        except Exception as e:
-            print(f"Error al desconectar: {e}")
-
-# Función que maneja nuevas conexiones de clientes al servidor
-def handle_new_connection(server, clientes):
-    try: 
-        client_socket, client_address = server.accept() # accept() devuelve el nuevo socket para el cliente y su IP/Puerto
-        client_socket.setblocking(False) # Evitamos que este nuevo socket bloquee el programa al leer
-        clientes.append(client_socket) # Lo añadimos a la lista para que el "select" lo vigile
-        print(f"Conexión aceptada de {client_address}")
+# Función para aceptar sockets_clientes desde el socket_servidor
+def accept_client(socket_server):
+    try:
+        (socket_client, client_address) = socket_server.accept()
+        socket_client.setblocking(False)
+        SOCKETS.append(socket_client)
+        print(f"[SERVER] Conexión establecida con el cliente - Conexión desde: {client_address[0]}:{client_address[1]}")
     except Exception as e:
         print(f"Error al aceptar conexión: {e}")
 
-# Función que recepciona datos de un cliente ya conectado
-def handle_client_message(sock, clientes, server_ref):
+# Función para desconectar al socket_cliente 
+def disconnect(socket_client):
+    if socket_client in SOCKETS:
+        SOCKETS.remove(socket_client)
     try:
-        mensaje = sock.recv(BUFFER) # Intenta leer datos del buffer
-        if not mensaje: # Si recv devuelve nada, es que el cliente cerró la conexión limpiamente
-            disconnect(sock, clientes)
-            return
-        texto = mensaje.decode("utf-8") # Decodifica los bytes a texto legible
-        print(f"Mensaje recibido: {texto}") 
-        broadcast(sock, texto, clientes, server_ref) # Reenvía el mensaje a los demás clientes
-    except (ConnectionResetError, BrokenPipeError):
-        disconnect(sock, clientes) # Si el cliente se desconecta forzosamente (ej: cerró la terminal)
-    except Exception as e:
-        print(f"Error al recibir: {e}")
-        disconnect(sock, clientes)
+        socket_client.close()
+    except:
+        pass
+    print(f"[SERVER] Cliente desconectado")
 
-# Bucle del servidor
-def main():
-    server = setup_server(HOST, PORT) # Seteo del servidor(localhost, Puerto designado) en este caso
-    listado_cliente.append(server) # El servidor también se vigila a sí mismo
+# Función de envío de mensaje tipo broadcast (a todos menos al emisor)
+def broadcast(message, socket_sender, socket_server):
+    for client in SOCKETS:
+        if client != socket_sender and client != socket_server:
+            try:
+                client.send(message)
+            except:
+                disconnect(client)
+
+# Función de gestión de los socket_clients. Verifica el envío de mensajes o confirma la desconexión
+def client_management(socket_client):
+    try: 
+        message = socket_client.recv(BUFFER)
+        if not message:
+            disconnect(socket_client)
+            return
+
+        print(f"[LOG] Mensaje recibido: {message.decode('utf-8').strip()}")
+        broadcast(message, socket_client)
+        
+    except Exception:
+        disconnect(socket_client)
+
+# Función para "prender" el socket_server
+def server_on(socket_server):
+    SOCKETS.append(socket_server)
+    print("[SISTEMA] El protocolo de comunicación se ha instanciado")
+
     try:
         while True:
-            # select.select examina qué sockets tienen datos listos para leer
-            readable, _, _ = select.select(listado_cliente, [], [])
-            # Se queda pausado aquí hasta que pase algo (ahorra CPU)
-            for sock in readable:
-                if sock is server:
-                    # Si el socket listo es el server, hay un cliente nuevo pidiendo entrar
-                    handle_new_connection(server, listado_cliente)
+            ready, _, _ = select.select(SOCKETS, [], [])
+            for socket in ready:
+                if socket == socket_server:
+                    accept_client(socket_server)
                 else:
-                    # Si es cualquier otro, es un cliente enviando un mensaje
-                    handle_client_message(sock, listado_cliente, server)
+                    client_management(socket)
 
-    except KeyboardInterrupt: # Captura Ctrl+C para un cierre ordenado
-        print("\nServidor detenido manualmente.")
+    except KeyboardInterrupt:
+        print("[SISTEMA] Apagando el servidor de forma manual")
+
     finally:
-        for sock in listado_cliente: # Al cerrar, recorre todos los sockets y los cierra
-            sock.close()
-
-if __name__ == "__main__":
-    main() 
+        for socket in SOCKETS:
+            socket.close()
+# Iniciando el server
+socket_server = setup_server(IP, PORT)
+server_on(socket_server)
