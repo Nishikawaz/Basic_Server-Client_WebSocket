@@ -41,4 +41,25 @@ def client_disconnect():
             print(f"Error al cerrar la conexión del cliente")
 
         socket_client = None
-    
+
+def receive_messages():
+    global socket_client
+
+    while True:
+        if closing:
+            break
+        if socket_client is None:
+            client_connect()
+            continue
+        try:
+            message = socket_client.recv(BUFFER)
+            if not message:
+                raise ConnectionError
+            print(message.decode("utf-8"))
+        except (ConnectionError, OSError):
+            if closing:
+                break
+            print("[SISTEMA] Se perdió la conexión con el server")
+            client_disconnect()
+            time.sleep(DELAY)
+            
