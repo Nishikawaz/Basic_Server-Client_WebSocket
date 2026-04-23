@@ -1,56 +1,104 @@
-import socket    # Para conectarse al servidor
-import threading # Para hacer dos cosas a la vez: escribir y escuchar
-import sys       # Para la salida de la terminal (limpiar líneas)
+import socket
+import threading
+import time 
 
-# Configuración
-HOST = "127.0.0.1"
+# Configuración global
+IP = "127.0.0.1"
 PORT = 6869
+BUFFER = 1024
+DELAY = 3
 
-# Función que establece un hilo secundario "corriendo" siempre escuchando al servidor
-def recibir_mensajes(sock):
-    while True:
+# Socket actual del cliente (Con global se gestionan cambios a la variable de scope mayor)
+socket_client = None
+
+# Variable bandera para saber si se da el cierre al programa
+closing = False
+
+# Configuración del username
+NAME = input("Username: ")
+
+# Función de conexión del cliente
+def client_connect():
+    global socket_client
+
+    while socket_client is None and not closing:
         try:
-            mensaje = sock.recv(1024) # Se queda esperando recibir algo del servidor
-            if not mensaje: # Si el servidor se apaga, recibiremos un paquete vacío
-                print("\nConexión cerrada por el servidor.")
-                break
-            sys.stdout.write(f"\r{mensaje.decode('utf-8')}\nTú: ") # \r mueve el cursor al inicio de la línea
-            sys.stdout.flush() # Fuerza a la terminal a mostrar el texto directo
-        except: # Cualquier error de red rompe el bucle de recepción
+            socket_client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            socket_client.connect((IP, PORT))
+            print(f"[SISTEMA] Conectado al server: \nIP:{IP} \nPORT:{PORT}")
+            return socket_client
+        except ConnectionRefusedError:
+            print(f"[SISTEMA] No se pudo conectar. Reintentando en {DELAY} segundos")
+            time.sleep(DELAY)
+        except OSError:
+            if not closing:
+                print(f"No se pudo conectar. Reintentando en {DELAY} segundos")
+                time.sleep(DELAY)
+
+# Función de desconexión del cliente
+def client_disconnect():
+    global socket_client
+
+    # Si NO es indicado como None (inicialmente) lo desconecta
+    if socket_client is not None:
+        try:
+            socket_client.close()
+        except OSError:
+            print(f"Error al cerrar la conexión del cliente")
+
+        socket_client = None
+
+# Función de recepción de mensajes
+def receive_messages():
+    global socket_client
+
+    while True:
+        if closing: # Si se está cerrando, sale del loop. Así se entiende que el hilo muere
             break
-    print("Hilo de recepción terminado.")
-
-# Hilo principal donde se maneja la conexión y el envío de mensajes
-def main():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # Crea el socket del cliente (TCP)
-    try:
-        sock.connect((HOST, PORT)) # Intenta conectar al servidor
-        print(f"Conectado al servidor {HOST}:{PORT}")
-        hilo_receptor = threading.Thread(target=recibir_mensajes, args=(sock,)) # Crea un hilo paralelo para ejecutar la función 'recibir_mensajes'
-        hilo_receptor.daemon = True # Daemon=True hace que el hilo muera automáticamente si el programa principal se cierra
-        hilo_receptor.start()
-
-        # Bucle principal de interacción
-        while True:
-            mensaje = input("Tú: ") # Se queda pausado esperando que el usuario escriba algo
-            if mensaje.lower() == "salir": # Si el usuario escribe 'salir', rompemos el bucle
+        if socket_client is None: # Si no hay conexión activa, trata de conectarse siempre y cuando no quiera cerrarse
+            client_connect()
+            continue
+        try:
+            message = socket_client.recv(BUFFER)
+            if not message:
+                raise ConnectionError # Forzamos una excepción porque llega vacío
+            print(message.decode("utf-8"))
+        except (ConnectionError, OSError):
+            if closing: # Si closing True, desconexión directa. 
                 break
-            if mensaje: # Solo enviamos si el mensaje tiene contenido
-                try:
-                    sock.sendall(mensaje.encode("utf-8")) # Codifica a UTF-8 y envía todo el contenido
-                except (BrokenPipeError, ConnectionResetError):
-                    print("Error: Se perdió la conexión con el servidor.")
-                    break
-    except ConnectionRefusedError:
-        # Error si el servidor no está encendido o el puerto está cerrado
-        print("No se pudo conectar: Servidor fuera de línea.")
-    except KeyboardInterrupt:
-        # Salida limpia con Ctrl+C
-        print("\nSaliendo...")
-    finally:
-        # Asegura que el socket se cierre al terminar el programa
-        sock.close()
-        print("Socket del cliente cerrado.")
+            print("[SISTEMA] Se perdió la conexión con el server")
+            client_disconnect() # Desconexión forzada
+            time.sleep(DELAY)
 
-if __name__ == "__main__":
-    main()
+# Función de mecánica principal del lado del cliente:
+# 1) Hilo receptor: Hilo secundario de escucha/recibe mensajes del server
+# 2) Hilo de Loop de envío: Lectura de inputs para mandarlos
+def client_ON(): # El hilo se procesa implícitamente al hacer la ejecución de esta función
+    global closing
+
+    receiving_thread = threading.Thread(target=receive_messages, daemon=True) # Si muere el hilo principal, muere el secundario (para no dejarlo colgado)
+    receiving_thread.start()
+
+    while True: # Ya que aplica while true, nunca terminaría la verificación sin el daemon=True
+        try:
+            text = input() # Bloqueante, entonces se debe aplicar un hilo secundario
+            if socket_client is None:
+                print("Sin conexión")
+                continue
+            message = f"{NAME}: {text}".encode("utf-8")
+            socket_client.sendall(message)
+
+        except OSError:
+            if not closing:
+                print("Error al enviar el mensaje")
+            client_disconnect()
+        except KeyboardInterrupt:
+            print("Cliente desconectado manualmente")
+
+            closing = True # Indica desconexión a todos los hilos (global para ambos hilos)
+            client_disconnect()
+            receiving_thread.join(timeout=1) # Tiempo de espera del hilo secundario
+            break
+
+# Se "corre" el cliente
+client_ON()
