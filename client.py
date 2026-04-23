@@ -14,6 +14,9 @@ socket_client = None
 # Variable bandera para saber si se da el cierre al programa
 closing = False
 
+# Configuración del username
+NAME = input("Username: ")
+
 def client_connect():
     global socket_client
 
@@ -62,4 +65,31 @@ def receive_messages():
             print("[SISTEMA] Se perdió la conexión con el server")
             client_disconnect()
             time.sleep(DELAY)
-            
+
+def client_ON():
+    global closing
+
+    receiving_thread = threading.Thread(target=receive_messages, daemon=True)
+    receiving_thread.start()
+
+    while True:
+        try:
+            text = input()
+            if socket_client is None:
+                print("Sin conexión")
+                continue
+            message = f"{NAME}: {text}".encode("utf-8")
+            socket_client.sendall(message)
+        except OSError:
+            if not closing:
+                print("Error al enviar el mensaje")
+            client_disconnect()
+        except KeyboardInterrupt:
+            print("Cliente desconectado manualmente")
+            closing = True
+            client_disconnect()
+            receiving_thread.join(timeout=1)
+            break
+
+# Se "corre" el cliente
+client_ON()
