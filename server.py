@@ -15,8 +15,18 @@ def setup_server(ip, port):
         socket_server.bind((ip, port))
         socket_server.listen()
         socket_server.setblocking(False)
-        print(f"Servidor escuchando - {ip}:{port}")
+        print(f"[SISTEMA] Servidor configurado y en modo escucha - {ip}:{port}")
         return socket_server
     except OSError as e:
         print(f"Error al configurar servidor: {e}")
         exit(1)
+
+def handle_new_connection(server, cliente):
+    try:
+        (socket_client, client_address) = server.accept()
+        socket_client.setblocking(False)
+        CLIENTES.append(socket_client)
+        print(f"Conexión aceptado - Conexión desde: {client_address[0]}:{client_address[1]}")
+    except Exception as e:
+        print(f"Error al aceptar conexión: {e}")
+
