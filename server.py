@@ -5,9 +5,9 @@ IP = "127.0.0.1"
 PORT = 6869
 BUFFER = 1024
 
-CLIENTES = []
+CLIENTS = []
 
-# Configuración inicial del servidor
+# Función para configurar inicialmente el socket_servidor
 def setup_server(ip, port):
     try:
         socket_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -21,12 +21,23 @@ def setup_server(ip, port):
         print(f"Error al configurar servidor: {e}")
         exit(1)
 
-def handle_new_connection(server, cliente):
+# Función para aceptar sockets_clientes desde el socket_servidor
+def accept_client(socket_server):
     try:
-        (socket_client, client_address) = server.accept()
+        (socket_client, client_address) = socket_server.accept()
         socket_client.setblocking(False)
-        CLIENTES.append(socket_client)
-        print(f"Conexión aceptado - Conexión desde: {client_address[0]}:{client_address[1]}")
+        CLIENTS.append(socket_client)
+        print(f"Conexión establecida con el cliente - Conexión desde: {client_address[0]}:{client_address[1]}")
     except Exception as e:
         print(f"Error al aceptar conexión: {e}")
+
+# Función para desconectar al socket_cliente
+def disconnect(socket_client):
+    if socket_client in CLIENTS:
+        CLIENTS.remove(socket_client)
+    try:
+        socket_client.close()
+    except:
+        pass
+    print(f"[SERVER] Cliente desconectado")
 
